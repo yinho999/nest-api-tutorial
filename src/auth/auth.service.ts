@@ -3,6 +3,8 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime';
 import * as argon2 from 'argon2';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -10,7 +12,11 @@ import { AuthDto } from './dto';
 
 @Injectable()
 export class AuthService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private jwtService: JwtService,
+    private configService: ConfigService,
+  ) {}
   async signUp(authDto: AuthDto) {
     // generate the password hash
     const hash = await argon2.hash(authDto.password);
@@ -23,9 +29,7 @@ export class AuthService {
           hash,
         },
       });
-      delete user.hash;
-      // return the user
-      return user;
+      return await this.signToken(user.id, user.email);
     } catch (error) {
       // if the email already exists, throw an error
       if (error instanceof PrismaClientKnownRequestError) {
@@ -55,8 +59,22 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // send back user
-    delete user.hash;
-    return user;
+    return await this.signToken(user.id, user.email);
+  }
+
+  async signToken(
+    userId: number,
+    email: string,
+  ): Promise<{
+    accessToken: string;
+  }> {
+    const payload = { sub: userId, email };
+    const accessToken = await this.jwtService.signAsync(payload, {
+      secret: this.configService.get('JWT_SECRET'),
+      expiresIn: '15m',
+    });
+    return {
+      accessToken,
+    };
   }
 }
